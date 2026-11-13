@@ -6,11 +6,19 @@ An icon pack switcher for the [Omarchy](https://omarchy.org) bar. Pick any insta
 
 ## Install
 
+Omarchy installs plugins straight from their git repo, so this works with or without the marketplace listing:
+
 ```bash
 omarchy plugin add https://github.com/Raiden-MeixElysia/OmaIcon --enable
 ```
 
-Click the grid icon in the bar. Nothing changes until you pick a pack.
+It asks you to confirm and where in the bar to put the icon, clones the repo into `~/.config/omarchy/plugins/raiden-meixelysia.omaicon`, and enables it. Click the grid icon. Nothing changes until you pick a pack.
+
+Update to the latest version:
+
+```bash
+omarchy plugin update raiden-meixelysia.omaicon
+```
 
 Needs Omarchy 4 (Quattro). Python 3 and `gsettings` ship with Omarchy; there are no other dependencies.
 

@@ -1,0 +1,71 @@
+# OmaIcon
+
+An icon pack switcher for the [Omarchy](https://omarchy.org) bar. Pick any installed icon pack in one panel: apps, the dock and the launcher switch together, and the choice survives Omarchy theme switches. OmaIcon ships [**OmaPixIcon**](https://github.com/Raiden-MeixElysia/OmaPixIcon), a pixel-art pack recoloured to your Omarchy theme.
+
+<p align="center"><img src="preview.png" alt="The OmaIcon panel" width="60%"></p>
+
+## Install
+
+```bash
+omarchy plugin add https://github.com/Raiden-MeixElysia/OmaIcon --enable
+```
+
+Click the grid icon in the bar. Nothing changes until you pick a pack.
+
+Needs Omarchy 4 (Quattro). Python 3 and `gsettings` ship with Omarchy; there are no other dependencies.
+
+## Use
+
+- The panel shows five packs; **View all** shows the rest. Click one to switch.
+- **Omarchy** follows the pack each Omarchy theme names in its `icons.theme`.
+- Hover OmaPixIcon, or move to it with the arrow keys, and its palettes slide out. Click one, or press ←/→ and Enter.
+
+From a terminal:
+
+```bash
+E=~/.config/omarchy/plugins/raiden-meixelysia.omaicon/engine/omaicon.py
+python3 -B $E use Papirus
+python3 -B $E palette nord
+python3 -B $E use omarchy
+```
+
+## What it changes
+
+Only after you pick a pack:
+
+- `org.gnome.desktop.interface icon-theme`, the setting GTK and Qt apps read.
+- `~/.local/share/icons/OmaPixIcon/`, once you pick OmaPixIcon.
+- `~/.icons/omaicon-shell-*/`: the chosen pack as the dock and launcher see it. They read icons by file name from every icon folder, not from the selected theme, so OmaIcon puts the chosen pack's files first.
+- `~/.config/omarchy/hooks/theme-set.d/50-omaicon`, which applies the choice again after an Omarchy theme switch.
+- `~/.config/omaicon/config` and `~/.cache/omaicon/`.
+
+## Remove
+
+```bash
+python3 -B ~/.config/omarchy/plugins/raiden-meixelysia.omaicon/engine/omaicon.py remove
+omarchy plugin remove raiden-meixelysia.omaicon
+```
+
+The first line deletes everything listed above and sets Omarchy's icons back. If you installed OmaPixIcon with its `install.sh`, uninstall with that instead; it also restores the launchers it re-pointed.
+
+## Icon pack standard
+
+The panel lists any icon pack that follows the same rules as Omarchy's default, Yaru:
+
+- It is a [freedesktop icon theme](https://specifications.freedesktop.org/icon-theme-spec/latest/) in `~/.local/share/icons/<Name>/` or `/usr/share/icons/<Name>/`.
+- Its `index.theme` has an `[Icon Theme]` section with `Name`, `Directories` and `Inherits`, and no `Hidden=true`.
+- It inherits a Yaru variant, then `Adwaita` and `hicolor`, so an app it does not draw keeps the Omarchy icon. OmaPixIcon inherits whatever Yaru variant the current theme uses.
+- It names icons by freedesktop names (`folder`, `utilities-terminal`, `web-browser`) and by each app's `Icon=` name or desktop id (`firefox`, `org.gnome.Nautilus`).
+- To make a pack the icons of an Omarchy theme, put its folder name in that theme's `icons.theme`, one line, as the stock themes do (`Yaru-blue`). The **Omarchy** row follows that file.
+
+## The built-in pack
+
+`pack/` is a copy of the OmaPixIcon renderer and icon data. `pack/SOURCE` names the OmaPixIcon commit it came from. Icons are drawn and requested in [OmaPixIcon](https://github.com/Raiden-MeixElysia/OmaPixIcon); to ship a new release of the pack:
+
+```bash
+tools/sync-pack.sh ../OmaPixIcon
+```
+
+## License
+
+[MIT](LICENSE), for the plugin and the bundled pack ([`pack/LICENSE`](pack/LICENSE)).

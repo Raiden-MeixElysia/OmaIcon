@@ -7,7 +7,7 @@ An Omarchy bar plugin, id `raiden-meixelysia.omaicon`, that switches icon packs.
 - `manifest.json`: the plugin manifest at the repo root. `omarchy plugin add` clones the repo whole. Entry point `plugin/Panel.qml`.
 - `plugin/`: the panel (Quickshell QML). It runs `../engine/omaicon.py` with `python3 -B`, so no `__pycache__` lands in the plugin folder and reloads it.
 - `engine/omaicon.py`: the only code that switches icon pack or palette. The panel, the theme-switch hook and OmaPixIcon's `install.sh` all call it. It logs every step to stderr as `omaicon: …`.
-- `pack/`: the OmaPixIcon renderer and data, copied by `tools/sync-pack.sh`. Never edit it here; `pack/SOURCE` is the OmaPixIcon commit it came from.
+- `pack/`: the OmaPixIcon renderer and data, copied by `tools/sync-pack.sh`. Never edit it here. `pack/SOURCE` is `<sha> <date>` of the last OmaPixIcon commit that changed `data/`.
 
 ## State on a user's machine
 
@@ -18,10 +18,15 @@ Nothing is written until the user picks a pack. Then:
 - `~/.config/omaicon/config`: `ICON_THEME` (`omarchy` when unset, `OmaPixIcon`, or any installed pack), `PALETTE`, `RESTART_SHELL`.
 - `~/.config/omarchy/hooks/theme-set.d/50-omaicon`: runs `omaicon.py theme-set`; deletes itself once the plugin is gone.
 - `~/.cache/omaicon/`: preview SVGs for the panel.
+- `~/.local/share/omaicon/pack/`: `data/` and `SOURCE` fetched by `update-pack`. `active_pack()` uses it when its date beats `pack/SOURCE`; `render.ROOT` points at the active one.
 
 ## Why the shell needs its own copy
 
 The Omarchy dock, launcher and menu ignore the GTK icon theme. `AppLibrary.qml` scans every icon dir (`~/.icons` first), keeps the first file per name, and prefers SVG over PNG. So `publish()` in `omaicon.py` resolves the chosen pack the GTK way (pack, `Inherits`, hicolor, pixmaps), links each name into a new `~/.icons/omaicon-shell-<n>/apps/`, wraps PNGs that an SVG elsewhere would beat, and gives launcher names the pack lacks its `application-x-executable`. A new folder per switch makes the shell reload the images.
+
+## Pack updates
+
+`omaicon.py update-pack` (the button at the end of OmaPixIcon's palette strip) is the plugin's only network access. It fetches data only, from fixed GitHub URLs pinned to one commit, with size limits and timeouts, and `check_icons`/`check_themes` reject anything that could escape a folder or break the renderer. Never fetch or run code. A renderer change ships through `tools/sync-pack.sh` and a plugin release.
 
 ## Rules
 

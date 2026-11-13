@@ -24,9 +24,14 @@ Panel {
   property int cursor: -1
   property int paletteCursor: -1
   property bool showAll: false
+  property string lastAction: ""
+  property bool packDone: false
 
   readonly property var themes: info ? info.themes : []
   readonly property var palettes: info ? info.palettes : []
+  readonly property int updateIndex: palettes.length
+  readonly property string packDate: info && info.pack.date
+    ? new Date(info.pack.date).toLocaleDateString(Qt.locale(Commons.I18n.formatLocale), Locale.ShortFormat) : ""
   readonly property int previewCount: 5
   readonly property bool hasMore: themes.length > previewCount
   readonly property var shown: showAll ? themes : themes.slice(0, previewCount)
@@ -48,6 +53,7 @@ Panel {
     if (busy !== "") return
     busy = target
     error = ""
+    lastAction = args[0]
     actionProc.command = ["python3", "-B", cli].concat(args)
     console.log("omaicon: run " + JSON.stringify(args))
     actionProc.running = true
@@ -60,6 +66,10 @@ Panel {
 
   function setPalette(name) {
     run(["palette", name], "OmaPixIcon")
+  }
+
+  function updatePack() {
+    run(["update-pack"], "OmaPixIcon")
   }
 
   function point(index) {
@@ -75,12 +85,13 @@ Panel {
       return
     }
     if (cursor >= shown.length || shown[cursor].name !== "OmaPixIcon") return
-    paletteCursor = Math.max(0, Math.min(palettes.length - 1, paletteCursor + dx))
+    paletteCursor = Math.max(0, Math.min(updateIndex, paletteCursor + dx))
   }
 
   function activate() {
     if (cursor < 0) return
     if (cursor === toggleIndex) toggleAll()
+    else if (paletteCursor === updateIndex) updatePack()
     else if (paletteCursor >= 0) setPalette(palettes[paletteCursor].name)
     else use(shown[cursor].name)
   }
@@ -136,10 +147,16 @@ Panel {
     onExited: function(exitCode) {
       console.log("omaicon: exit " + exitCode + "\n" + actionErr.text)
       if (exitCode !== 0) root.error = root.lastLine(actionErr.text) || ("exited " + exitCode)
+      else if (root.lastAction === "update-pack") {
+        root.packDone = true
+        packDoneTimer.restart()
+      }
       root.busy = ""
       root.load()
     }
   }
+
+  Timer { id: packDoneTimer; interval: 1600; onTriggered: root.packDone = false }
 
   BarIconButton {
     id: button
@@ -318,7 +335,7 @@ Panel {
         id: strip
         y: Style.space(6)
         x: Style.spacing.rowPaddingX
-        width: parent.width - Style.spacing.rowPaddingX * 2
+        width: update.x - x - Style.space(8)
         height: Style.space(40)
         orientation: ListView.Horizontal
         spacing: Style.space(4)
@@ -381,6 +398,23 @@ Panel {
             fontFamily: root.fontFamily
           }
         }
+      }
+
+      PanelActionButton {
+        id: update
+        anchors.right: parent.right
+        anchors.rightMargin: Style.spacing.rowPaddingX
+        anchors.verticalCenter: strip.verticalCenter
+        size: Style.space(34)
+        fontSize: Style.font.heading
+        iconText: root.packDone ? "\uDB80\uDD2C" : "\uDB81\uDEB0"
+        foreground: root.foreground
+        fontFamily: root.fontFamily
+        enabled: root.busy === ""
+        hasCursor: root.paletteCursor === root.updateIndex
+        tooltipText: strings.t("updatePack").arg(root.packDate)
+        onHovered: function(h) { if (h) root.paletteCursor = root.updateIndex }
+        onClicked: root.updatePack()
       }
     }
   }

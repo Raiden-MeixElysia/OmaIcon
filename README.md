@@ -27,6 +27,7 @@ Needs Omarchy 4 (Quattro). Python 3 and `gsettings` ship with Omarchy; there are
 - The panel shows five packs; **View all** shows the rest. Click one to switch.
 - **Omarchy** follows the pack each Omarchy theme names in its `icons.theme`.
 - Hover OmaPixIcon, or move to it with the arrow keys, and its palettes slide out. Click one, or press ←/→ and Enter.
+- The button at the end of those palettes fetches the newest OmaPixIcon icons without waiting for a plugin update. Its tooltip shows the date of the icons you have.
 
 From a terminal:
 
@@ -35,6 +36,7 @@ E=~/.config/omarchy/plugins/raiden-meixelysia.omaicon/engine/omaicon.py
 python3 -B $E use Papirus
 python3 -B $E palette nord
 python3 -B $E use omarchy
+python3 -B $E update-pack
 ```
 
 ## What it changes
@@ -46,6 +48,9 @@ Only after you pick a pack:
 - `~/.icons/omaicon-shell-*/`: the chosen pack as the dock and launcher see it. They read icons by file name from every icon folder, not from the selected theme, so OmaIcon puts the chosen pack's files first.
 - `~/.config/omarchy/hooks/theme-set.d/50-omaicon`, which applies the choice again after an Omarchy theme switch.
 - `~/.config/omaicon/config` and `~/.cache/omaicon/`.
+- `~/.local/share/omaicon/pack/`, once you press the OmaPixIcon update button.
+
+OmaIcon goes online only when you press that button. It asks the GitHub API for the latest OmaPixIcon commit that changed `data/`, downloads `data/icons.json` and `data/omarchy-themes.json` at that commit from `raw.githubusercontent.com`, checks every icon and palette, and keeps them only if they pass. It downloads data, never code.
 
 ## Remove
 
@@ -68,7 +73,7 @@ The panel lists any icon pack that follows the same rules as Omarchy's default, 
 
 ## The built-in pack
 
-`pack/` is a copy of the OmaPixIcon renderer and icon data. `pack/SOURCE` names the OmaPixIcon commit it came from. Icons are drawn and requested in [OmaPixIcon](https://github.com/Raiden-MeixElysia/OmaPixIcon); to ship a new release of the pack:
+`pack/` is a copy of the OmaPixIcon renderer and icon data. `pack/SOURCE` names the last OmaPixIcon commit that changed the data, and its date. The update button keeps whichever is newer, this copy or the one it fetched. Icons are drawn and requested in [OmaPixIcon](https://github.com/Raiden-MeixElysia/OmaPixIcon); to ship a new release of the pack:
 
 ```bash
 tools/sync-pack.sh ../OmaPixIcon

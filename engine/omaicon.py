@@ -5,13 +5,19 @@
   omaicon.py palette <name>
   omaicon.py theme-set
   omaicon.py refresh
+  omaicon.py update-pack
   omaicon.py remove"""
-import base64, glob, hashlib, json, os, re, shutil, struct, subprocess, sys, time
+import base64, glob, hashlib, json, os, re, shutil, struct, subprocess, sys, time, urllib.error, urllib.request
+from datetime import datetime
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'pack', 'engine'))
-from render import ROOT, THEME_NAME, build_theme, read_colors_toml, resolve_palette, svg, theme_palette
+BUNDLED = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'pack')
+sys.path.insert(0, os.path.join(BUNDLED, 'engine'))
+import render
+from render import HOUSE, THEME_NAME, build_theme, read_colors_toml, resolve_palette, svg, theme_palette
 
 HOME = os.path.expanduser('~')
+FETCHED = os.path.join(HOME, '.local/share/omaicon/pack')
+PACK_REPO = 'Raiden-MeixElysia/OmaPixIcon'
 CONF = os.path.join(HOME, '.config/omaicon/config')
 THEME_DIR = os.path.join(HOME, '.local/share/icons', THEME_NAME)
 OMARCHY_THEME = os.path.join(HOME, '.local/state/omarchy/current/theme')
@@ -37,6 +43,26 @@ PALETTE_ICON = 'gpick'
 
 def log(msg):
     print(f'omaicon: {msg}', file=sys.stderr, flush=True)
+
+
+# ------------------------------------------------------------------ pack data
+def pack_source(root):
+    path = os.path.join(root, 'SOURCE')
+    if not os.path.exists(path):
+        return '', None
+    sha, _, date = open(path, encoding='utf-8').read().strip().partition(' ')
+    return sha, datetime.fromisoformat(date) if date else None
+
+
+def active_pack():
+    # The newer of the bundled pack and one fetched by update-pack.
+    if not os.path.exists(os.path.join(FETCHED, 'SOURCE')):
+        return BUNDLED
+    bundled, fetched = pack_source(BUNDLED)[1], pack_source(FETCHED)[1]
+    return FETCHED if bundled is None or fetched > bundled else BUNDLED
+
+
+ROOT = render.ROOT = active_pack()
 
 
 # ------------------------------------------------------------------ config
@@ -304,7 +330,7 @@ def write_hook():
 
 def remove():
     conf = read_conf()
-    for path in [HOOK, THEME_DIR, os.path.dirname(CONF), os.path.dirname(CACHE)] + glob.glob(os.path.join(SHELL_ICONS, SHELL_PREFIX + '*')):
+    for path in [HOOK, THEME_DIR, os.path.dirname(CONF), os.path.dirname(CACHE), os.path.dirname(FETCHED)] + glob.glob(os.path.join(SHELL_ICONS, SHELL_PREFIX + '*')):
         if os.path.isdir(path):
             shutil.rmtree(path)
         elif os.path.exists(path):
@@ -434,10 +460,106 @@ def refresh(conf):
 
 
 # ------------------------------------------------------------------ commands
+# ------------------------------------------------------------------ pack update
+SLOTS = set(HOUSE) | {'.', '%'}
+COLOR_KEYS = {'foreground', 'background', 'dark_background', 'darker_background', 'light_foreground',
+              'red', 'orange', 'yellow', 'green', 'cyan', 'blue', 'magenta', 'brown', 'accent'}
+
+
+def fetch(url, limit, timeout):
+    req = urllib.request.Request(url, headers={'User-Agent': 'OmaIcon'})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            data = r.read(limit + 1)
+    except (urllib.error.URLError, TimeoutError) as e:
+        sys.exit(f'omaicon: fetch {url}: {e}')
+    if len(data) > limit:
+        sys.exit(f'omaicon: {url} is over {limit} bytes')
+    log(f'fetched {url} ({len(data)} bytes)')
+    return data
+
+
+def bad(what):
+    sys.exit(f'omaicon: refusing the new pack: {what}')
+
+
+def check_icons(icons):
+    if not isinstance(icons, dict) or not 0 < len(icons) <= 50000:
+        bad('icons.json is not a map of icons')
+    if PALETTE_ICON not in icons:
+        bad(f'icons.json lacks {PALETTE_ICON}')
+    for iid, v in icons.items():
+        if not isinstance(v, dict):
+            bad(f'{iid} is not an icon')
+        rows, names = v.get('rows'), v.get('names')
+        if not isinstance(rows, list) or not 8 <= len(rows) <= 256:
+            bad(f'{iid}: rows')
+        if any(not isinstance(row, str) or len(row) != len(rows) or not set(row) <= SLOTS for row in rows):
+            bad(f'{iid}: rows must be square and use palette slots')
+        if not isinstance(names, list) or not 0 < len(names) <= 500:
+            bad(f'{iid}: names')
+        for n in names:
+            # Names become file names.
+            if not isinstance(n, str) or not 0 < len(n) <= 200 or n.startswith('.') or '/' in n or '\0' in n:
+                bad(f'{iid}: name {n!r}')
+        if not re.fullmatch(r'[a-z]{1,32}', str(v.get('context', 'apps'))):
+            bad(f'{iid}: context')
+
+
+def check_themes(themes):
+    if not isinstance(themes, dict) or not 0 < len(themes) <= 500:
+        bad('omarchy-themes.json is not a map of themes')
+    for name, colors in themes.items():
+        if not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,63}', name) or not isinstance(colors, dict):
+            bad(f'theme {name!r}')
+        for key, value in colors.items():
+            if not isinstance(value, str) or len(value) > 128:
+                bad(f'{name}.{key}')
+            if (key in COLOR_KEYS or key.startswith('bright_')) and not re.fullmatch(r'#[0-9a-fA-F]{6}', value):
+                bad(f'{name}.{key} is not a #rrggbb colour')
+
+
+def update_pack():
+    global ROOT
+    api = f'https://api.github.com/repos/{PACK_REPO}/commits?path=data&per_page=1'
+    head = json.loads(fetch(api, 1 << 20, 20))
+    sha, date = head[0]['sha'], head[0]['commit']['committer']['date']
+    if not re.fullmatch(r'[0-9a-f]{40}', sha):
+        bad(f'commit {sha!r}')
+    latest = datetime.fromisoformat(date)
+    current_sha, current = pack_source(ROOT)
+    if sha == current_sha or (current is not None and current >= latest):
+        log(f'OmaPixIcon is up to date at {current_sha[:7]} ({date})')
+        return
+    raw = f'https://raw.githubusercontent.com/{PACK_REPO}/{sha}/data'
+    icons_raw = fetch(f'{raw}/icons.json', 64 << 20, 120)
+    themes_raw = fetch(f'{raw}/omarchy-themes.json', 2 << 20, 30)
+    icons, themes = json.loads(icons_raw), json.loads(themes_raw)
+    check_icons(icons)
+    check_themes(themes)
+    stage = FETCHED + '.new'
+    shutil.rmtree(stage, ignore_errors=True)
+    os.makedirs(os.path.join(stage, 'data'))
+    with open(os.path.join(stage, 'data', 'icons.json'), 'wb') as f:
+        f.write(icons_raw)
+    with open(os.path.join(stage, 'data', 'omarchy-themes.json'), 'wb') as f:
+        f.write(themes_raw)
+    with open(os.path.join(stage, 'SOURCE'), 'w') as f:
+        f.write(f'{sha} {date}\n')
+    shutil.rmtree(FETCHED, ignore_errors=True)
+    os.rename(stage, FETCHED)
+    ROOT = render.ROOT = active_pack()
+    log(f'OmaPixIcon updated to {sha[:7]} ({date}): {len(icons)} icons, {len(themes)} palettes')
+    conf = read_conf()
+    if choice(conf) == THEME_NAME:
+        apply(conf)
+
+
 def status():
     conf = read_conf()
     themes = installed_themes()
     follow = omarchy_icons()
+    sha, date = pack_source(ROOT)
     rows = []
     if follow in themes:
         rows.append({'name': FOLLOW, 'title': 'Omarchy', 'previews': previews(themes, follow)})
@@ -449,6 +571,7 @@ def status():
         'choice': choice(conf),
         'current': gsettings_get(),
         'palette': palette(conf),
+        'pack': {'sha': sha[:7], 'date': date.isoformat() if date else ''},
         'themes': rows,
         'palettes': palette_previews(),
     }, sys.stdout)
@@ -471,6 +594,8 @@ def main():
         apply(read_conf())
     elif cmd == 'refresh' and not args:
         refresh(read_conf())
+    elif cmd == 'update-pack' and not args:
+        update_pack()
     elif cmd == 'remove' and not args:
         remove()
     else:

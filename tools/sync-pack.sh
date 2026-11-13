@@ -8,5 +8,6 @@ rm -rf "$dst" && mkdir -p "$dst/engine" "$dst/data"
 cp "$src/engine/render.py" "$dst/engine/"
 cp "$src/data/icons.json" "$src/data/omarchy-themes.json" "$dst/data/"
 cp "$src/LICENSE" "$dst/"
-git -C "$src" rev-parse HEAD >"$dst/SOURCE"
+# The last commit that changed the data, which update-pack compares against
+git -C "$src" log -1 --format="%H %cI" -- data >"$dst/SOURCE"
 echo "pack synced from OmaPixIcon $(cat "$dst/SOURCE")"

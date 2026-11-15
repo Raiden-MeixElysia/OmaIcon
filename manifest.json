@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "raiden-meixelysia.omaicon",
   "name": "OmaIcon",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "雷电芽衣",
   "license": "MIT",
   "description": "Switch icon packs from the bar; apps, the dock and the launcher all follow. Ships the OmaPixIcon pixel pack, recoloured to your Omarchy theme.",

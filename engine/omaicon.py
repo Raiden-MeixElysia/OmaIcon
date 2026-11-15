@@ -6,6 +6,7 @@
   omaicon.py theme-set
   omaicon.py refresh
   omaicon.py update-pack
+  omaicon.py fix-launchers
   omaicon.py remove"""
 import base64, glob, hashlib, json, os, re, shutil, struct, subprocess, sys, time, urllib.error, urllib.request
 from datetime import datetime
@@ -289,7 +290,8 @@ def gsettings_set(name):
     log(f'icon-theme {name}')
 
 
-def render(conf):
+def render_theme(conf):
+    # Not `render`: that would shadow the render module, and update_pack's render.ROOT would miss it.
     name = palette(conf)
     inherit = omarchy_icons()
     new = THEME_DIR + '.new'
@@ -304,7 +306,7 @@ def render(conf):
 def apply(conf):
     target = choice(conf)
     if target == THEME_NAME:
-        inherit = render(conf)
+        inherit = render_theme(conf)
         if gsettings_get() == THEME_NAME:
             # GTK repaints only on a name change.
             gsettings_set(inherit)
@@ -314,6 +316,7 @@ def apply(conf):
         theme = omarchy_icons() if target == FOLLOW else target
         check(theme)
     gsettings_set(theme)
+    fix_launchers(conf)
     publish(theme)
     write_hook()
     refresh(conf)
@@ -330,6 +333,7 @@ def write_hook():
 
 def remove():
     conf = read_conf()
+    restore_launchers()
     for path in [HOOK, THEME_DIR, os.path.dirname(CONF), os.path.dirname(CACHE), os.path.dirname(FETCHED)] + glob.glob(os.path.join(SHELL_ICONS, SHELL_PREFIX + '*')):
         if os.path.isdir(path):
             shutil.rmtree(path)
@@ -364,8 +368,11 @@ def png_svg(path):
 def desktop_icon(path):
     if not os.path.exists(path):
         return ''
+    group = ''
     for line in open(path, encoding='utf-8', errors='replace'):
-        if line.startswith('Icon='):
+        if line.startswith('['):
+            group = line.strip()
+        elif group == '[Desktop Entry]' and line.startswith('Icon='):
             return line[5:].strip()
     return ''
 
@@ -386,7 +393,7 @@ def launcher_icons():
     # Names the desktop fix gave launchers, mapped to their own files.
     pairs = [(os.path.join(APPS, os.path.basename(b)), b) for b in glob.glob(os.path.join(BACKUP, '*.desktop'))]
     for f in glob.glob(os.path.join(APPS, '*.desktop')):
-        if 'X-OmaPix-Override=true' in open(f, encoding='utf-8', errors='replace').read():
+        if OVERRIDE in open(f, encoding='utf-8', errors='replace').read():
             pairs.append((f, os.path.join('/usr/share/applications', os.path.basename(f))))
     out = {}
     for current, original in pairs:
@@ -394,6 +401,91 @@ def launcher_icons():
         if name and not name.startswith('/') and path.endswith(('.svg', '.png')) and os.path.exists(path):
             out[name] = path
     return out
+
+
+# ------------------------------------------------------------------ launchers
+# Apps that hard-code an icon file path in their launcher (`Icon=/opt/app/icon.png`) can't follow the pack.
+# Point them at the pack's icon name instead. Apps rewrite their launcher on update, so this runs on every
+# apply() and whenever the shell's app list changes. It only touches launchers still on a path, so it settles.
+OVERRIDE = 'X-OmaPix-Override=true'
+HASHED = re.compile(r'\.h[0-9a-f]{12,}$')
+
+
+def launcher_fix_enabled(conf):
+    # Opt-in: install.sh sets DESKTOP_FIX=1. Installs that already ran its fix (it made BACKUP) keep it on.
+    default = '1' if os.path.isdir(BACKUP) else '0'
+    return choice(conf) == THEME_NAME and conf.get('DESKTOP_FIX', default) == '1'
+
+
+def pack_names():
+    with open(os.path.join(ROOT, 'data', 'icons.json'), encoding='utf-8') as f:
+        return {n for v in json.load(f).values() for n in v['names']}
+
+
+def launcher_icon_name(path, icon, names):
+    stem = os.path.basename(path)[:-len('.desktop')]
+    # Per-install launchers carry a hash suffix: com.xd.cindy.user.h69297e92b23bcb60
+    candidates = (stem, stem.lower(), HASHED.sub('', stem), os.path.splitext(os.path.basename(icon))[0],
+                  stem.removesuffix('-desktop'))
+    return next((n for n in candidates if n in names), '')
+
+
+def write_launcher(src, dst, name, override):
+    lines, group, done = [], '', False
+    with open(src, encoding='utf-8', errors='surrogateescape') as f:
+        for line in f.read().splitlines():
+            if line.startswith('['):
+                group = line.strip()
+            if not done and group == '[Desktop Entry]' and line.startswith('Icon='):
+                lines.append(f'Icon={name}')
+                if override:
+                    lines.append(OVERRIDE)
+                done = True
+            else:
+                lines.append(line)
+    tmp = dst + '.omaicon-tmp'
+    with open(tmp, 'w', encoding='utf-8', errors='surrogateescape') as f:
+        f.write('\n'.join(lines) + '\n')
+    shutil.copymode(src, tmp)
+    os.replace(tmp, dst)
+
+
+def fix_launchers(conf):
+    if not launcher_fix_enabled(conf):
+        return
+    names = pack_names()
+    own = {os.path.basename(f) for f in glob.glob(os.path.join(APPS, '*.desktop'))}
+    fixed = 0
+    for f in sorted(glob.glob('/usr/share/applications/*.desktop')) + sorted(glob.glob(os.path.join(APPS, '*.desktop'))):
+        base, icon = os.path.basename(f), desktop_icon(f)
+        name = launcher_icon_name(f, icon, names) if icon.startswith('/') else ''
+        if not name:
+            continue
+        if os.path.dirname(f) == APPS:
+            # The app just wrote this file, so it is the original to keep.
+            os.makedirs(BACKUP, exist_ok=True)
+            shutil.copyfile(f, os.path.join(BACKUP, base))
+            write_launcher(f, f, name, False)
+        elif base not in own:
+            os.makedirs(APPS, exist_ok=True)
+            write_launcher(f, os.path.join(APPS, base), name, True)
+        else:
+            continue
+        fixed += 1
+    if fixed:
+        log(f're-pointed {fixed} launcher(s) that hard-code an icon path')
+
+
+def restore_launchers():
+    for f in glob.glob(os.path.join(APPS, '*.desktop')):
+        if OVERRIDE in open(f, encoding='utf-8', errors='replace').read():
+            os.remove(f)
+    for b in glob.glob(os.path.join(BACKUP, '*.desktop')):
+        target = os.path.join(APPS, os.path.basename(b))
+        # A launcher the app has rewritten since is newer than the backup.
+        if os.path.exists(target) and not desktop_icon(target).startswith('/'):
+            shutil.copyfile(b, target)
+    shutil.rmtree(BACKUP, ignore_errors=True)
 
 
 def publish(theme):
@@ -596,6 +688,8 @@ def main():
         refresh(read_conf())
     elif cmd == 'update-pack' and not args:
         update_pack()
+    elif cmd == 'fix-launchers' and not args:
+        fix_launchers(read_conf())
     elif cmd == 'remove' and not args:
         remove()
     else:

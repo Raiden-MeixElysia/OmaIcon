@@ -49,6 +49,7 @@ Only after you pick a pack:
 - `~/.config/omarchy/hooks/theme-set.d/50-omaicon`, which applies the choice again after an Omarchy theme switch.
 - `~/.config/omaicon/config` and `~/.cache/omaicon/`.
 - `~/.local/share/omaicon/pack/`, once you press the OmaPixIcon update button.
+- Launchers in `~/.local/share/applications/`, only if you set `DESKTOP_FIX=1` in `~/.config/omaicon/config` (the OmaPixIcon installer does) and use OmaPixIcon. A few apps hard-code an icon file path in their launcher, which no icon pack can change, so OmaIcon rewrites that one `Icon=` line to the pack's icon name. It does so again when an app update rewrites its launcher. Originals are kept in `~/.local/state/omapix/desktop-backup/`, and `remove` puts them back.
 
 OmaIcon goes online only when you press that button. It asks the GitHub API for the latest OmaPixIcon commit that changed `data/`, downloads `data/icons.json` and `data/omarchy-themes.json` at that commit from `raw.githubusercontent.com`, checks every icon and palette, and keeps them only if they pass. It downloads data, never code.
 

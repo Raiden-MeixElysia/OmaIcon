@@ -158,6 +158,30 @@ Panel {
 
   Timer { id: packDoneTimer; interval: 1600; onTriggered: root.packDone = false }
 
+  // An app update can rewrite its launcher with a hard-coded icon path. fix-launchers only writes
+  // launchers still on a path, so its own edits end the loop.
+  Process {
+    id: launcherProc
+    command: ["python3", "-B", root.cli, "fix-launchers"]
+    stderr: StdioCollector { id: launcherErr; waitForEnd: true }
+    onExited: function(exitCode) {
+      if (exitCode !== 0) console.warn("omaicon: fix-launchers exited " + exitCode + ": " + launcherErr.text)
+      else if (launcherErr.text) console.log(launcherErr.text)
+    }
+  }
+
+  Timer {
+    id: launcherDebounce
+    interval: 3000
+    running: true
+    onTriggered: if (!launcherProc.running) launcherProc.running = true
+  }
+
+  Connections {
+    target: DesktopEntries.applications
+    function onValuesChanged() { launcherDebounce.restart() }
+  }
+
   BarIconButton {
     id: button
     anchors.fill: parent
